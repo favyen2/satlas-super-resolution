@@ -1,5 +1,5 @@
 # General Settings
-name: default
+name: plus_gen2
 model_type: SSRESRGANModel
 scale: 4
 num_gpu: auto
@@ -11,7 +11,7 @@ percep_gt_usm: True
 gan_gt_usm: False
 
 # Whether or not to feed the discriminator Sentinel-2 images.
-feed_disc_s2: True
+feed_disc_s2: False
 
 # Dataset and Dataloader Settings
 datasets:
@@ -25,7 +25,7 @@ datasets:
 
     # (Optional) path to old NAIP images, between 2016-2018. If specified, old NAIP will be
     # provided to the discriminator as additional input.
-    #old_naip_path: /data/piperw/data/old-naip/
+    old_naip_path: /data/piperw/data/old-naip/
 
     # (Optional) json with tile weights for training time.
     #tile_weights: /data/piperw/super-res/ssr-data/train_tile_weights/urban_set_weights.json
@@ -54,7 +54,7 @@ datasets:
 
      # (Optional) path to old NAIP images, between 2016-2018. If specified, old NAIP will be
      # provided to the discriminator as additional input.
-     #old_naip_path: /data/piperw/data/old-naip/
+     old_naip_path: /data/piperw/data/old-naip/
 
      use_shuffle: False
 
@@ -66,7 +66,7 @@ datasets:
 
 # Network Structures
 network_g:
-  type: SSR_RRDBNet
+  type: Try2
   num_in_ch: 24  # number of Sentinel2 images * 3 channels (RGB)
   num_out_ch: 3
   num_feat: 64
@@ -75,7 +75,7 @@ network_g:
 
 network_d:
   type: SSR_UNetDiscriminatorSN
-  num_in_ch: 27  # real/fake input + old naip image * 3 channels (RGB) + S2 images * num_bands, depending what's specified
+  num_in_ch: 6  # real/fake input + old naip image * 3 channels (RGB) + S2 images * num_bands, depending what's specified
   num_feat: 64
   skip_connection: True
 
@@ -143,7 +143,7 @@ train:
     gan_type: vanilla
     real_label_val: 1.0
     fake_label_val: 0.0
-    loss_weight: !!float 1e-1
+    loss_weight: !!float 10.0
 
   net_d_iters: 1
   net_d_init_iters: 0

@@ -1,5 +1,5 @@
 # General Settings
-name: default
+name: dry1
 model_type: SSRESRGANModel
 scale: 4
 num_gpu: auto
@@ -74,10 +74,9 @@ network_g:
   num_grow_ch: 32
 
 network_d:
-  type: SSR_UNetDiscriminatorSN
+  type: Dry1
   num_in_ch: 27  # real/fake input + old naip image * 3 channels (RGB) + S2 images * num_bands, depending what's specified
   num_feat: 64
-  skip_connection: True
 
   # If wanting to use different first convolutions for the 32x32 and 128x128 input, specify
   # a list of [num_in_channels_32x32, num_in_channels_128x128] here:
