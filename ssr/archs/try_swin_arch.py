@@ -9,6 +9,7 @@ from torch.nn import functional as F
 
 from basicsr.utils.registry import ARCH_REGISTRY
 from .arch_util import default_init_weights, make_layer, pixel_unshuffle
+from .multihead4 import backbones, intermediates
 
 
 class ResidualDenseBlock(nn.Module):
@@ -69,7 +70,7 @@ class RRDB(nn.Module):
 
 
 @ARCH_REGISTRY.register()
-class Try6(nn.Module):
+class TrySwin(nn.Module):
     """Networks consisting of Residual in Residual Dense Block, which is used
     in ESRGAN.
 
@@ -85,21 +86,41 @@ class Try6(nn.Module):
         num_out_ch (int): Channel number of outputs.
         num_feat (int): Channel number of intermediate features.
             Default: 64
-        num_block (int): Block number in the trunk network. Defaults: 23
-        num_grow_ch (int): Channels for each growth. Default: 32.
     """
 
-    def __init__(self, num_in_ch, num_out_ch, scale=4, num_feat=64, num_block=23, num_grow_ch=32):
-        super(Try6, self).__init__()
+    def __init__(self, num_in_ch, num_out_ch, scale=4, num_feat=64):
+        super(TrySwin, self).__init__()
         self.scale = scale
         if scale == 2:
             num_in_ch = num_in_ch * 4
         elif scale == 1:
             num_in_ch = num_in_ch * 16
-        self.body = make_layer(RRDB, num_block, num_feat=num_feat, num_grow_ch=num_grow_ch)
-        self.conv_body = nn.Conv2d(num_feat, num_feat, 3, 1, 1)
-        # upsample
-        self.conv_up1 = nn.Conv2d(num_feat, num_feat, 3, 1, 1)
+
+        backbone_config = {
+            'Name': 'aggregation',
+            'ImageChannels': 3,
+            'AggregationOp': 'max',
+            'Groups': [[0, 1, 2, 3, 4, 5, 6, 7]],
+            'Backbone': {
+                'Name': 'swin',
+                'Arch': 'swin_v2_b',
+                'Pretrained': True,
+            },
+        }
+        self.backbone = backbones[backbone_config['Name']](num_in_ch, backbone_config)
+        backbone_channels = self.backbone.out_channels
+
+        intermediate_channels = 128
+        intermediate_config = {
+            'Name': 'upsample',
+            'SkipConnections': True,
+            'OutChannels': intermediate_channels,
+        }
+        self.intermediates = torch.nn.Sequential(
+            intermediates[intermediate_config['Name']](backbone_channels, intermediate_config)
+        )
+
+        self.conv_up1 = nn.Conv2d(intermediate_channels, num_feat, 3, 1, 1)
         self.conv_up2 = nn.Conv2d(num_feat, num_feat, 3, 1, 1)
 
         if self.scale == 8 or self.scale == 16:
@@ -113,71 +134,13 @@ class Try6(nn.Module):
         self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
 
         self.num_feat = num_feat
-        self.n_len = 16
-        self.spatial1 = torch.nn.Sequential(
-            torch.nn.Conv2d(3, num_feat, kernel_size=3, padding='same'),
-            torch.nn.ReLU(inplace=True),
-            torch.nn.Conv2d(num_feat, num_feat, kernel_size=3, padding='same'),
-            torch.nn.ReLU(inplace=True),
-            torch.nn.Conv2d(num_feat, num_feat, kernel_size=1, padding='same'),
-            torch.nn.ReLU(inplace=True),
-            torch.nn.Conv2d(num_feat, num_feat, kernel_size=3, padding='same'),
-            torch.nn.ReLU(inplace=True),
-            torch.nn.Conv2d(num_feat, num_feat, kernel_size=1, padding='same'),
-            torch.nn.ReLU(inplace=True),
-        )
-        self.spatial2 = torch.nn.Sequential(
-            torch.nn.Conv2d(num_feat*2, num_feat, kernel_size=1, padding='same'),
-            torch.nn.ReLU(inplace=True),
-            torch.nn.Conv2d(num_feat, num_feat, kernel_size=3, padding='same'),
-            torch.nn.ReLU(inplace=True),
-            torch.nn.Conv2d(num_feat, num_feat, kernel_size=1, padding='same'),
-            torch.nn.ReLU(inplace=True),
-        )
-        self.spatial3 = torch.nn.Sequential(
-            torch.nn.Conv2d(num_feat*2, num_feat, kernel_size=1, padding='same'),
-            torch.nn.ReLU(inplace=True),
-            torch.nn.Conv2d(num_feat, num_feat, kernel_size=3, padding='same'),
-            torch.nn.ReLU(inplace=True),
-            torch.nn.Conv2d(num_feat, num_feat, kernel_size=1, padding='same'),
-            torch.nn.ReLU(inplace=True),
-        )
-        self.temporal1 = torch.nn.Sequential(
-            torch.nn.Conv2d(self.n_len*num_feat, self.n_len*num_feat, kernel_size=1, padding='same'),
-            torch.nn.ReLU(inplace=True),
-            torch.nn.Conv2d(self.n_len*num_feat, num_feat, kernel_size=1, padding='same'),
-            torch.nn.ReLU(inplace=True),
-            torch.nn.Conv2d(num_feat, num_feat, kernel_size=3, padding='same'),
-            torch.nn.ReLU(inplace=True),
-            torch.nn.Conv2d(num_feat, num_feat, kernel_size=1, padding='same'),
-            torch.nn.ReLU(inplace=True),
-        )
 
     def forward(self, x):
         feat = x
-        n_b, n_c, n_h, n_w = feat.shape
-        n_len = n_c//3
-        feat = feat.reshape(n_b*n_len, 3, n_h, n_w)
-        feat = self.spatial1(feat)
-        feat = feat.reshape(n_b, n_len, self.num_feat, n_h, n_w)
-        feat = torch.cat([
-            feat,
-            feat.amax(dim=1, keepdim=True).repeat(1, n_len, 1, 1, 1),
-        ], dim=2)
-        feat = feat.reshape(n_b*n_len, self.num_feat*2, n_h, n_w)
-        feat = self.spatial2(feat)
-        feat = feat.reshape(n_b, n_len, self.num_feat, n_h, n_w)
-        feat = torch.cat([
-            feat,
-            feat.amax(dim=1, keepdim=True).repeat(1, n_len, 1, 1, 1),
-        ], dim=2)
-        feat = feat.reshape(n_b*n_len, self.num_feat*2, n_h, n_w)
-        feat = self.spatial3(feat)
-        feat = feat.reshape(n_b, n_len*self.num_feat, n_h, n_w)
-        feat = self.temporal1(feat)
+        feat = self.backbone(feat)
+        feat = self.intermediates(feat)
+        feat = feat[0]
 
-        body_feat = self.conv_body(self.body(feat))
-        feat = feat + body_feat
         # upsample
         feat = self.lrelu(self.conv_up1(F.interpolate(feat, scale_factor=2, mode='nearest')))
         feat = self.lrelu(self.conv_up2(F.interpolate(feat, scale_factor=2, mode='nearest')))

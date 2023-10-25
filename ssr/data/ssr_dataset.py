@@ -11,6 +11,7 @@ from torch.utils import data as data
 from torch.utils.data import WeightedRandomSampler
 from torchvision.transforms import functional as trans_fn
 from basicsr.utils.registry import DATASET_REGISTRY
+import multiprocessing
 
 totensor = torchvision.transforms.ToTensor()
 
@@ -133,6 +134,7 @@ class SSRDataset(data.Dataset):
         return CustomWeightedRandomSampler(weights, len(self.datapoints))
 
     def __getitem__(self, index):
+        os.sched_setaffinity(0, set(range(multiprocessing.cpu_count())))
 
         # A while loop and try/excepts to catch a few potential errors and continue if caught.
         counter = 0
